@@ -1,5 +1,6 @@
 package parser;
 
+import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.lang.tree.Tree;
 import cn.hutool.core.lang.tree.TreeNodeConfig;
 import cn.hutool.core.lang.tree.TreeUtil;
@@ -30,26 +31,30 @@ public class Spoon {
 
         List<String> tableName = new ArrayList<>();
         tableName.add("t_user");
-        String projectPath = System.getProperty("user.dir") + File.separator + "src" + File.separator + "main";
+
+
+        // 获取上一级目录
+        File parent = FileUtil.getParent(new File(System.getProperty("user.dir")), 1);
+        String projectPath = parent + File.separator + "sb-server" + File.separator + "src" + File.separator + "main";
 
         Map<String, Set<String>> daoNodeMap = ParserNodeFactory.getDaoNode(projectPath, tableName);
 
 
         Launcher launcher = new Launcher();
         launcher.addInputResource(projectPath);
-        launcher.getEnvironment().setComplianceLevel(8);
+        launcher.getEnvironment().setComplianceLevel(17);
         launcher.getEnvironment().setNoClasspath(true);
         launcher.buildModel();
 
         CtModel ctModel = launcher.getModel();
-        List<ParserNode> nodeList = new ArrayList<>();
+        List<ParserNode> parserNodes = new ArrayList<>();
 
         // 定义一个map，装载接口和实现累之间的关系
         Map<String, String> interfaceMap = new HashMap<>();
         // 获取所有类
         Collection<CtType<?>> allTypes = ctModel.getAllTypes();
         for (CtType<?> item : allTypes) {
-            String implClass = item.getPackage() + "." + item.getActualClass().getSimpleName();
+            String implClass = item.getPackage() + "." + item.getSimpleName();
             if (item instanceof CtClass) {
                 // 获取有实现类的接口
                 CtTypeReference<?> ctTypeReference = ((CtClass) item).getSuperInterfaces().stream().findFirst().orElse(null);
@@ -64,8 +69,6 @@ public class Spoon {
             }
 
         }
-        System.out.println(interfaceMap);
-
         // 解析接口类
         List<CtElement> elements = SpoonUtil.findWithAnnotation(ctModel, RequestMapping.class);
         for (CtElement element : elements) {
@@ -73,29 +76,59 @@ public class Spoon {
             CtType<?> declaringType = method.getDeclaringType();
             String packageName = declaringType.getPackage().getQualifiedName();
             String className = declaringType.getSimpleName();
-            nodeList.add(new ParserNode(packageName, className, method.getSimpleName()));
+            parserNodes.add(new ParserNode(packageName, className, method.getSimpleName(), NodeType.API.getType()));
         }
 
-        for (ParserNode parserNode : nodeList) {
-            parserNode.setParentId("root");
+        for (ParserNode parserNode : parserNodes) {
             parserNodeList.add(parserNode);
             findNextCalls(ctModel, parserNode, interfaceMap, daoNodeMap);
         }
-        TreeNodeConfig nodeConfig = new TreeNodeConfig();
-        nodeConfig.setIdKey("val");
-        nodeConfig.setNameKey("val");
-        nodeConfig.setParentIdKey("parent_id");
+//        TreeNodeConfig nodeConfig = new TreeNodeConfig();
+//        nodeConfig.setIdKey("id");
+//        nodeConfig.setNameKey("name");
+//        nodeConfig.setParentIdKey("parentId");
+//
+//        List<Tree<String>> root = TreeUtil.build(parserNodeList, "root", nodeConfig, (parserNode, tree) -> {
+//
+//            tree.setId(parserNode.getVal());
+//            tree.setName(parserNode.getName());
+//            tree.setParentId(parserNode.getParentId());
+//            tree.putExtra("type", parserNode.getType());
+//        });
+//        System.out.println(JSON.toJSONString(root));
 
-        List<Tree<String>> root = TreeUtil.build(parserNodeList, "root", nodeConfig, (parserNode, tree) -> {
 
-            tree.setId(parserNode.getVal());
-            tree.setName(parserNode.getVal());
-            tree.setParentId(parserNode.getParentId());
-            tree.putExtra("tableNameList", parserNode.getTableNameList());
-        });
+        List<Node> nodeList = new ArrayList<>();
+        List<Edge> edgeList = new ArrayList<>();
 
+        for (int i = 0; i < parserNodeList.size(); i++) {
+            ParserNode parserNode = parserNodeList.get(i);
 
-        System.out.println(JSON.toJSONString(root));
+            Node buildNode = Node.builder()
+                    .id(parserNode.getVal())
+                    .name(parserNode.getName())
+                    .type(parserNode.getType())
+                    .build();
+
+//            // 如果类型是表，则
+//            if (buildNode.getType() == NodeType.TABLE.getType()) {
+//                buildNode.setId(buildNode.getName());
+//            }
+            nodeList.add(buildNode);
+
+            if (parserNode.getParentId() != null) {
+                edgeList.add(Edge.builder()
+                        .from(parserNode.getParentId())
+                        .to(parserNode.getVal())
+                        .build());
+            }
+
+        }
+
+        nodeList = nodeList.stream().distinct().toList();
+        System.out.println(JSON.toJSONString(nodeList));
+        edgeList = edgeList.stream().distinct().toList();
+        System.out.println(JSON.toJSONString(edgeList));
 
     }
 
@@ -118,7 +151,7 @@ public class Spoon {
             for (CtInvocation<?> invocation : invocations) {
                 try {
                     String newPkg = invocation.getExecutable().getDeclaringType().getPackage().getQualifiedName();
-                    String newMethodName = invocation.getExecutable().getActualMethod().getName();
+                    String newMethodName = invocation.getExecutable().getSimpleName();
                     String newClassName = invocation.getExecutable().getDeclaringType().getSimpleName();
                     String itemName = newPkg + "." + newClassName + "." + newMethodName;
 
@@ -129,11 +162,15 @@ public class Spoon {
                     } else {
                         parserNode = new ParserNode(newPkg, newClassName, newMethodName);
                     }
-
                     if (daoNodeMap.containsKey(itemName)) {
-                        parserNode.setTableNameList(daoNodeMap.get(itemName));
+                        for (String daoNode : daoNodeMap.get(itemName)) {
+                            ParserNode tableNode = new ParserNode(daoNode);
+                            tableNode.setName(daoNode);
+                            tableNode.setType(NodeType.TABLE.getType());
+                            tableNode.setParentId(srcKey);
+                            parserNodeList.add(tableNode);
+                        }
                     }
-
                     parserNode.setParentId(srcKey);
                     parserNodeList.add(parserNode);
                     findNextCalls(ctModel, parserNode, interfaceMap, daoNodeMap);

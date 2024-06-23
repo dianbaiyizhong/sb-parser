@@ -10,22 +10,19 @@ import java.util.Set;
 public class ParserNode {
 
 
-    private Set<String> tableNameList = new HashSet<>();
+    private int type = 0; // 0:代表方法节点，1:代表接口，2:代表表名
     private String url;
-
     private String parentId;
     private String val;
     private String pkg;
     private String className;
     private String methodName;
+    private String name;
 
-
-    public void addTable(String tableName) {
-        this.tableNameList.add(tableName);
-    }
 
     public ParserNode(String val) {
         this.val = val;
+        this.name = this.val;
     }
 
     public ParserNode(String pkg, String className, String methodName) {
@@ -33,6 +30,13 @@ public class ParserNode {
         this.methodName = methodName;
         this.className = className;
         this.val = this.pkg + "." + this.className + "." + this.methodName;
+        this.name = this.val;
+    }
+
+
+    public ParserNode(String pkg, String className, String methodName, int type) {
+        this(pkg, className, methodName);
+        this.type = type;
     }
 
     @Override
