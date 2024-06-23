@@ -3,8 +3,10 @@ package com.nntk.sb.mapper;
 import com.nntk.sb.domain.TUser;
 import com.nntk.sb.domain.TUserExample;
 import java.util.List;
-import org.apache.ibatis.annotations.Param;
 
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
+@Mapper
 public interface TUserMapper {
     long countByExample(TUserExample example);
 
