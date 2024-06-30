@@ -1,9 +1,6 @@
 package parser;
 
 import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.lang.tree.Tree;
-import cn.hutool.core.lang.tree.TreeNodeConfig;
-import cn.hutool.core.lang.tree.TreeUtil;
 import com.alibaba.fastjson2.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -20,6 +17,7 @@ import spoon.support.SpoonClassNotFoundException;
 
 import java.io.File;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class Spoon {
@@ -73,29 +71,19 @@ public class Spoon {
         List<CtElement> elements = SpoonUtil.findWithAnnotation(ctModel, RequestMapping.class);
         for (CtElement element : elements) {
             CtMethod<?> method = (CtMethod<?>) element;
+            String apiUrl = element.getAnnotations().get(0).getValues().get("value").toString().replaceAll("\"", "");
             CtType<?> declaringType = method.getDeclaringType();
             String packageName = declaringType.getPackage().getQualifiedName();
             String className = declaringType.getSimpleName();
-            parserNodes.add(new ParserNode(packageName, className, method.getSimpleName(), NodeType.API.getType()));
+            ParserNode parserNode = new ParserNode(packageName, className, method.getSimpleName(), NodeType.API.getType());
+            parserNode.setName(apiUrl);
+            parserNodes.add(parserNode);
         }
 
         for (ParserNode parserNode : parserNodes) {
             parserNodeList.add(parserNode);
             findNextCalls(ctModel, parserNode, interfaceMap, daoNodeMap);
         }
-//        TreeNodeConfig nodeConfig = new TreeNodeConfig();
-//        nodeConfig.setIdKey("id");
-//        nodeConfig.setNameKey("name");
-//        nodeConfig.setParentIdKey("parentId");
-//
-//        List<Tree<String>> root = TreeUtil.build(parserNodeList, "root", nodeConfig, (parserNode, tree) -> {
-//
-//            tree.setId(parserNode.getVal());
-//            tree.setName(parserNode.getName());
-//            tree.setParentId(parserNode.getParentId());
-//            tree.putExtra("type", parserNode.getType());
-//        });
-//        System.out.println(JSON.toJSONString(root));
 
 
         List<Node> nodeList = new ArrayList<>();
@@ -110,10 +98,7 @@ public class Spoon {
                     .type(parserNode.getType())
                     .build();
 
-//            // 如果类型是表，则
-//            if (buildNode.getType() == NodeType.TABLE.getType()) {
-//                buildNode.setId(buildNode.getName());
-//            }
+
             nodeList.add(buildNode);
 
             if (parserNode.getParentId() != null) {
@@ -130,6 +115,28 @@ public class Spoon {
         edgeList = edgeList.stream().distinct().toList();
         System.out.println(JSON.toJSONString(edgeList));
 
+
+        // 将关系倒转，方便从表开始追溯
+        for (Edge edge : edgeList) {
+            String edgeTo = edge.getTo();
+            String edgeFrom = edge.getFrom();
+            edge.setFrom(edgeTo);
+            edge.setTo(edgeFrom);
+        }
+
+
+        // 过滤出所有表
+        List<Node> tableNodeList = nodeList.stream().filter(node -> node.getType() == NodeType.TABLE.getType()).toList();
+
+
+        Map<String, Object> releationMap = new HashMap<>();
+        for (Node node : tableNodeList) {
+            List<List<String>> allPath = DagUtil.getAllPath(nodeList, edgeList, node.getId());
+            releationMap.put(node.getId(), allPath);
+
+        }
+
+        System.out.println(JSON.toJSONString(releationMap));
     }
 
 
