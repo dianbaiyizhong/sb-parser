@@ -43,6 +43,7 @@
 </template>
 
 <script>
+import axios from 'axios';
 import G6 from '@antv/g6';
 import customNode from "./components/g6/custom-node";
 import customEdge from './components/g6/custom-edge'
@@ -50,6 +51,10 @@ import hoverNode from './components/g6/hover-node'
 import selectNode from './components/g6/select-node'
 import bus from '@/plugins/bus';
 
+import edges from './data/edges.json';
+import nodes from './data/nodes.json';
+
+let currentSelectModel = null
 import {nextTick} from "vue";
 
 let graph = null
@@ -78,39 +83,10 @@ export default {
         {title: 'Combo 力导向', id: 'comboForce'},
         {title: 'Combo 复合布局', id: 'comboCombined'},
       ],
-      nodes: [{"id":"com.nntk.sb.controller.UserInfoController.queryApi","name":"/user/api/query","type":1},{"id":"com.nntk.sb.service.UserInfoService.queryUser","name":"com.nntk.sb.service.UserInfoService.queryUser","type":0},{"id":"com.nntk.sb.service.log.info","name":"com.nntk.sb.service.log.info","type":0},{"id":"com.nntk.sb.manager.UserInfoManager.getSomethingByRedis","name":"com.nntk.sb.manager.UserInfoManager.getSomethingByRedis","type":0},{"id":"t_user","name":"t_user","type":2},{"id":"com.nntk.sb.mapper.TUserMapper.selectByExample","name":"com.nntk.sb.mapper.TUserMapper.selectByExample","type":0},{"id":"com.nntk.sb.service.UserInfoService.queryOrder","name":"com.nntk.sb.service.UserInfoService.queryOrder","type":0},{"id":"com.nntk.sb.service.log.warn","name":"com.nntk.sb.service.log.warn","type":0},{"id":"com.nntk.sb.controller.UserInfoController.queryOrderApi","name":"/user/api/query/order","type":1}]
-      ,
-      edges: [{
-        "from": "com.nntk.sb.controller.UserInfoController.queryApi",
-        "to": "com.nntk.sb.service.UserInfoService.queryUser"
-      }, {
-        "from": "com.nntk.sb.service.UserInfoService.queryUser",
-        "to": "com.nntk.sb.service.log.info"
-      }, {
-        "from": "com.nntk.sb.service.UserInfoService.queryUser",
-        "to": "com.nntk.sb.manager.UserInfoManager.getSomethingByRedis"
-      }, {
-        "from": "com.nntk.sb.manager.UserInfoManager.getSomethingByRedis",
-        "to": "t_user"
-      }, {
-        "from": "com.nntk.sb.manager.UserInfoManager.getSomethingByRedis",
-        "to": "com.nntk.sb.mapper.TUserMapper.selectByExample"
-      }, {
-        "from": "com.nntk.sb.controller.UserInfoController.queryApi",
-        "to": "com.nntk.sb.service.UserInfoService.queryOrder"
-      }, {
-        "from": "com.nntk.sb.service.UserInfoService.queryOrder",
-        "to": "com.nntk.sb.service.log.warn"
-      }, {
-        "from": "com.nntk.sb.service.UserInfoService.queryOrder",
-        "to": "t_user"
-      }, {
-        "from": "com.nntk.sb.service.UserInfoService.queryOrder",
-        "to": "com.nntk.sb.mapper.TUserMapper.selectByExample"
-      }, {
-        "from": "com.nntk.sb.controller.UserInfoController.queryOrderApi",
-        "to": "com.nntk.sb.service.UserInfoService.queryOrder"
-      }]
+      nodes: nodes,
+      edges: edges
+
+
     }
   },
 
@@ -241,29 +217,55 @@ export default {
       // });
 
 
-      const releationMap = {"t_user": [["t_user", "com.nntk.sb.manager.UserInfoManager.getSomethingByRedis", "com.nntk.sb.service.UserInfoService.queryUser", "com.nntk.sb.controller.UserInfoController.queryApi"], ["t_user", "com.nntk.sb.service.UserInfoService.queryOrder", "com.nntk.sb.controller.UserInfoController.queryApi"], ["t_user", "com.nntk.sb.service.UserInfoService.queryOrder", "com.nntk.sb.controller.UserInfoController.queryOrderApi"]]}
-
-
+      const releationMap = {"t_achievement_normal": [["t_achievement_normal", "com.zhenmei.p7i.rest.service.impl.AchievementServiceImpl.listNormalByUserId", "com.zhenmei.p7i.rest.web.controller.AchievementController.listNormal"]]}
       bus.$on("nodeselectchange", item => {
         if (item.select === true && item.target.getType() === "node") {
           let selectModel = item.target._cfg.model
+          currentSelectModel = selectModel
           if (selectModel.nodeType == 2) {
             releationMap[selectModel.nodeId].forEach(function (items) {
               items.forEach(function (item) {
-                let node = that.$_.find(nodes, {'nodeId': item});
-                node.nodeState = 1
+                // let node = that.$_.find(nodes, {'nodeId': item})
+                // console.info(node)
+                // node.nodeState = 1
+
+                let node = graph.findById(item)
+                // console.info(node)
+                // node._cfg.model.nodeState = 1
+                let model = node._cfg.model
+                model.nodeState = 1
+                // graph.refreshItem(node);
+                graph.updateItem(node, model);
+
+
               })
+
+
             })
-            graph.changeData(data)
+            // graph.changeData(data)
             // 由于changeData后，选中状态又取消了，这里手动设置为selected状态
-            graph.setItemState(selectModel.nodeId, 'selected', true);
+            // graph.setItemState(selectModel.nodeId, 'selected', true);
           }
         } else {
-          console.info(":")
-          nodes.forEach(function (node) {
-            node.nodeState = 0
+
+          // graph.getNodes().forEach(function (node) {
+          //   node.nodeState = 0
+          // })
+          const nodes = graph.findAll('node', (node) => {
+            return node.get('model').nodeState === 1;
           })
-          graph.changeData(data)
+          nodes.forEach(function (item) {
+            let node = graph.findById(item._cfg.model.nodeId)
+            // node._cfg.model.nodeState = 0
+            let model = node._cfg.model
+            model.nodeState = 0
+            graph.updateItem(node, model);
+
+          })
+
+          graph.setItemState(currentSelectModel.nodeId, 'selected', false);
+          // graph.changeData(data)
+
         }
       })
     }
@@ -284,7 +286,8 @@ export default {
   mounted() {
 
     let that = this
-    nextTick(function () {
+
+    nextTick(new function () {
       that.init()
     })
 

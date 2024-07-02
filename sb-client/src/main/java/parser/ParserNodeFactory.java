@@ -4,6 +4,7 @@ import cn.hutool.core.io.FileUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.alibaba.fastjson2.JSON;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 
@@ -39,7 +40,18 @@ public class ParserNodeFactory {
             JSONObject mapper = entries.getJSONObject("mapper");
             String nameSpace = mapper.getStr("namespace");
             for (String op : sqlOpType) {
-                JSONArray insert = mapper.getJSONArray(op);
+                if (!mapper.containsKey(op)) {
+                    continue;
+                }
+                Object objOrArr = mapper.get(op);
+                JSONArray insert = new JSONArray();
+
+                if (objOrArr instanceof JSONArray) {
+                    insert = mapper.getJSONArray(op);
+                } else {
+                    JSONObject jsonObject = mapper.getJSONObject(op);
+                    insert.add(jsonObject);
+                }
                 for (int i = 0; i < insert.size(); i++) {
                     JSONObject item = insert.getJSONObject(i);
                     String sql = item.getStr("content");

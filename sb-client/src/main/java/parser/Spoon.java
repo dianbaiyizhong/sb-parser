@@ -1,8 +1,11 @@
 package parser;
 
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.io.file.PathUtil;
 import com.alibaba.fastjson2.JSON;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import spoon.Launcher;
 import spoon.reflect.CtModel;
@@ -11,9 +14,11 @@ import spoon.reflect.declaration.CtClass;
 import spoon.reflect.declaration.CtElement;
 import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtType;
+import spoon.reflect.reference.CtPackageReference;
 import spoon.reflect.reference.CtTypeReference;
 import spoon.reflect.visitor.filter.TypeFilter;
 import spoon.support.SpoonClassNotFoundException;
+import spoon.support.reflect.declaration.CtClassImpl;
 
 import java.io.File;
 import java.util.*;
@@ -28,12 +33,20 @@ public class Spoon {
     public static void main(String[] args) {
 
         List<String> tableName = new ArrayList<>();
-        tableName.add("t_user");
+//        tableName.add("t_user");
+        tableName.add("t_achievement_normal");
 
 
         // 获取上一级目录
-        File parent = FileUtil.getParent(new File(System.getProperty("user.dir")), 1);
-        String projectPath = parent + File.separator + "sb-server" + File.separator + "src" + File.separator + "main";
+        String projectPath = FileUtil.getUserHomeDir() + File.separator + "Documents/GitHub/p7i-server";
+        String backPack = "com.zhenmei.p7i";
+
+
+//        File parent = FileUtil.getParent(new File(System.getProperty("user.dir")), 1);
+//        String backPack = null;
+//
+//        String projectPath = parent + File.separator + "sb-server" + File.separator + "src" + File.separator + "main";
+
 
         Map<String, Set<String>> daoNodeMap = ParserNodeFactory.getDaoNode(projectPath, tableName);
 
@@ -58,6 +71,34 @@ public class Spoon {
                 CtTypeReference<?> ctTypeReference = ((CtClass) item).getSuperInterfaces().stream().findFirst().orElse(null);
                 if (ctTypeReference != null) {
                     // 获取接口的所有方法
+                    if (ctTypeReference.toString().equals("java.io.Serializable")) {
+                        continue;
+                    }
+                    if (ctTypeReference.getPackage() == null) {
+                        continue;
+                    }
+
+
+                    if (StringUtils.startsWithAny(ctTypeReference.getPackage().getSimpleName(), "org", "javax", "java")) {
+                        continue;
+                    }
+
+                    if (StringUtils.isNotEmpty(backPack)) {
+                        if (!StringUtils.startsWithAny(ctTypeReference.getPackage().getSimpleName(), backPack)) {
+                            continue;
+                        }
+                    }
+
+                    if (StringUtils.isEmpty(ctTypeReference.getPackage().toString())) {
+                        // import javax.servlet.*;
+                        // public class TokenFilter implements Filter {
+                        continue;
+                    }
+
+//                    System.out.println(ctTypeReference.getDeclaration());
+                    if (ctTypeReference.getDeclaration() == null) {
+                        continue;
+                    }
                     List<CtMethod<?>> methodList = ctTypeReference.getDeclaration().getMethods().stream().toList();
                     for (CtMethod<?> ctMethod : methodList) {
                         String interfaceClass = ctTypeReference.getPackage() + "." + ctTypeReference.getSimpleName() + "." + ctMethod.getSimpleName();
@@ -70,19 +111,24 @@ public class Spoon {
         // 解析接口类
         List<CtElement> elements = SpoonUtil.findWithAnnotation(ctModel, RequestMapping.class);
         for (CtElement element : elements) {
-            CtMethod<?> method = (CtMethod<?>) element;
-            String apiUrl = element.getAnnotations().get(0).getValues().get("value").toString().replaceAll("\"", "");
-            CtType<?> declaringType = method.getDeclaringType();
-            String packageName = declaringType.getPackage().getQualifiedName();
-            String className = declaringType.getSimpleName();
-            ParserNode parserNode = new ParserNode(packageName, className, method.getSimpleName(), NodeType.API.getType());
-            parserNode.setName(apiUrl);
-            parserNodes.add(parserNode);
+            if (element instanceof CtClassImpl) {
+                continue;
+            } else {
+                CtMethod<?> method = (CtMethod<?>) element;
+                String apiUrl = element.getAnnotations().get(0).getValues().get("value").toString().replaceAll("\"", "");
+                CtType<?> declaringType = method.getDeclaringType();
+                String packageName = declaringType.getPackage().getQualifiedName();
+                String className = declaringType.getSimpleName();
+                ParserNode parserNode = new ParserNode(packageName, className, method.getSimpleName(), NodeType.API.getType());
+                parserNode.setName(apiUrl);
+                parserNodes.add(parserNode);
+            }
         }
+
 
         for (ParserNode parserNode : parserNodes) {
             parserNodeList.add(parserNode);
-            findNextCalls(ctModel, parserNode, interfaceMap, daoNodeMap);
+            findNextCalls(ctModel, parserNode, interfaceMap, daoNodeMap, backPack);
         }
 
 
@@ -111,8 +157,10 @@ public class Spoon {
         }
 
         nodeList = nodeList.stream().distinct().toList();
+        System.out.println(nodeList.size());
         System.out.println(JSON.toJSONString(nodeList));
         edgeList = edgeList.stream().distinct().toList();
+        System.out.println(edgeList.size());
         System.out.println(JSON.toJSONString(edgeList));
 
 
@@ -140,7 +188,9 @@ public class Spoon {
     }
 
 
-    public static void findNextCalls(CtModel ctModel, ParserNode node, Map<String, String> interfaceMap, Map<String, Set<String>> daoNodeMap) {
+    public static void findNextCalls(CtModel ctModel, ParserNode node, Map<String, String> interfaceMap, Map<String, Set<String>> daoNodeMap, String backPack) {
+
+
         String srcKey = node.getVal();
         ctModel.getElements(new TypeFilter<CtMethod<?>>(CtMethod.class) {
             @Override
@@ -157,10 +207,22 @@ public class Spoon {
             List<CtInvocation<?>> invocations = m.getElements(new TypeFilter<>(CtInvocation.class));
             for (CtInvocation<?> invocation : invocations) {
                 try {
-                    String newPkg = invocation.getExecutable().getDeclaringType().getPackage().getQualifiedName();
+
+                    CtPackageReference ctPackageReference = Optional.ofNullable(invocation).map(m1 -> m1.getExecutable()).map(m1 -> m1.getDeclaringType()).map(m1 -> m1.getPackage())
+                            .orElse(null);
+                    if (ctPackageReference == null) {
+                        continue;
+                    }
+                    String newPkg = ctPackageReference.getQualifiedName();
                     String newMethodName = invocation.getExecutable().getSimpleName();
                     String newClassName = invocation.getExecutable().getDeclaringType().getSimpleName();
                     String itemName = newPkg + "." + newClassName + "." + newMethodName;
+
+
+                    if (!StringUtils.startsWithAny(itemName, backPack)) {
+                        continue;
+                    }
+
 
                     ParserNode parserNode = null;
                     // 如果匹配，则要用实现类来继续递归
@@ -180,7 +242,7 @@ public class Spoon {
                     }
                     parserNode.setParentId(srcKey);
                     parserNodeList.add(parserNode);
-                    findNextCalls(ctModel, parserNode, interfaceMap, daoNodeMap);
+                    findNextCalls(ctModel, parserNode, interfaceMap, daoNodeMap, backPack);
                 } catch (SpoonClassNotFoundException e) {
                     log.warn(e.getMessage());
                 }

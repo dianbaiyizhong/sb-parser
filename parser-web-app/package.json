@@ -9,6 +9,7 @@
   "dependencies": {
     "@antv/g6": "^4.8.21",
     "@mdi/font": "7.0.96",
+    "axios": "^1.7.2",
     "lodash": "^4.17.21",
     "mitt": "^3.0.1",
     "roboto-fontface": "*",
