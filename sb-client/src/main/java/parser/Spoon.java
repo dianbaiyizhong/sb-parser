@@ -1,7 +1,10 @@
 package parser;
 
+import cn.hutool.core.collection.ListUtil;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.io.file.PathUtil;
+import cn.hutool.core.io.resource.ResourceUtil;
+import cn.hutool.core.text.StrPool;
 import com.alibaba.fastjson2.JSON;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -16,26 +19,32 @@ import spoon.reflect.declaration.CtMethod;
 import spoon.reflect.declaration.CtType;
 import spoon.reflect.reference.CtPackageReference;
 import spoon.reflect.reference.CtTypeReference;
+import spoon.reflect.visitor.Filter;
+import spoon.reflect.visitor.filter.AnnotationFilter;
 import spoon.reflect.visitor.filter.TypeFilter;
 import spoon.support.SpoonClassNotFoundException;
 import spoon.support.reflect.declaration.CtClassImpl;
+import spoon.support.reflect.declaration.CtInterfaceImpl;
 
 import java.io.File;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @Slf4j
 public class Spoon {
 
 
+    // 定义一个集合，用来收集所有节点信息
     private static List<ParserNode> parserNodeList = new ArrayList<>();
 
     public static void main(String[] args) {
 
-        List<String> tableName = new ArrayList<>();
-//        tableName.add("t_user");
-        tableName.add("t_achievement_normal");
-
+        List<String> tableNames = new ArrayList<>();
+        // 从txt读取所有表名
+        String[] split = ResourceUtil.readUtf8Str("table.txt").split(StrPool.LF);
+        tableNames = ListUtil.of(split);
+        log.info("tableNames:{}", tableNames);
 
         // 获取上一级目录
         String projectPath = FileUtil.getUserHomeDir() + File.separator + "Documents/GitHub/p7i-server";
@@ -44,11 +53,14 @@ public class Spoon {
 
 //        File parent = FileUtil.getParent(new File(System.getProperty("user.dir")), 1);
 //        String backPack = null;
-//
 //        String projectPath = parent + File.separator + "sb-server" + File.separator + "src" + File.separator + "main";
 
 
-        Map<String, Set<String>> daoNodeMap = ParserNodeFactory.getDaoNode(projectPath, tableName);
+        // 定义一个表，记录数据库表与代码method的关系
+        Map<String, Set<String>> daoNodeMap = new HashMap<>();
+
+        // 解析mybatis xml
+        ParserNodeFactory.getDaoNode(projectPath, tableNames, daoNodeMap);
 
 
         Launcher launcher = new Launcher();
@@ -58,58 +70,13 @@ public class Spoon {
         launcher.buildModel();
 
         CtModel ctModel = launcher.getModel();
+
+
         List<ParserNode> parserNodes = new ArrayList<>();
 
-        // 定义一个map，装载接口和实现累之间的关系
-        Map<String, String> interfaceMap = new HashMap<>();
-        // 获取所有类
-        Collection<CtType<?>> allTypes = ctModel.getAllTypes();
-        for (CtType<?> item : allTypes) {
-            String implClass = item.getPackage() + "." + item.getSimpleName();
-            if (item instanceof CtClass) {
-                // 获取有实现类的接口
-                CtTypeReference<?> ctTypeReference = ((CtClass) item).getSuperInterfaces().stream().findFirst().orElse(null);
-                if (ctTypeReference != null) {
-                    // 获取接口的所有方法
-                    if (ctTypeReference.toString().equals("java.io.Serializable")) {
-                        continue;
-                    }
-                    if (ctTypeReference.getPackage() == null) {
-                        continue;
-                    }
-
-
-                    if (StringUtils.startsWithAny(ctTypeReference.getPackage().getSimpleName(), "org", "javax", "java")) {
-                        continue;
-                    }
-
-                    if (StringUtils.isNotEmpty(backPack)) {
-                        if (!StringUtils.startsWithAny(ctTypeReference.getPackage().getSimpleName(), backPack)) {
-                            continue;
-                        }
-                    }
-
-                    if (StringUtils.isEmpty(ctTypeReference.getPackage().toString())) {
-                        // import javax.servlet.*;
-                        // public class TokenFilter implements Filter {
-                        continue;
-                    }
-
-//                    System.out.println(ctTypeReference.getDeclaration());
-                    if (ctTypeReference.getDeclaration() == null) {
-                        continue;
-                    }
-                    List<CtMethod<?>> methodList = ctTypeReference.getDeclaration().getMethods().stream().toList();
-                    for (CtMethod<?> ctMethod : methodList) {
-                        String interfaceClass = ctTypeReference.getPackage() + "." + ctTypeReference.getSimpleName() + "." + ctMethod.getSimpleName();
-                        interfaceMap.put(interfaceClass, implClass);
-                    }
-                }
-            }
-
-        }
         // 解析接口类
         List<CtElement> elements = SpoonUtil.findWithAnnotation(ctModel, RequestMapping.class);
+
         for (CtElement element : elements) {
             if (element instanceof CtClassImpl) {
                 continue;
@@ -124,6 +91,58 @@ public class Spoon {
                 parserNodes.add(parserNode);
             }
         }
+
+
+
+        // 解析mybatis plus的写法
+        ParserNodeFactory.getDaoNode(ctModel, tableNames, daoNodeMap);
+
+
+        // 定义一个map，装载接口和实现累之间的关系
+        Map<String, String> interfaceMap = new HashMap<>();
+        // 获取所有类
+        Collection<CtType<?>> allTypes = ctModel.getAllTypes();
+        for (CtType<?> item : allTypes) {
+            String implClass = item.getPackage() + "." + item.getSimpleName();
+            if (item instanceof CtClass) {
+                // 获取有实现类的接口
+                CtTypeReference<?> ctTypeReference = item.getSuperInterfaces().stream().findFirst().orElse(null);
+                if (ctTypeReference != null) {
+                    // 获取接口的所有方法
+                    if (ctTypeReference.toString().equals("java.io.Serializable")) {
+                        continue;
+                    }
+                    if (ctTypeReference.getPackage() == null) {
+                        continue;
+                    }
+                    if (StringUtils.startsWithAny(ctTypeReference.getPackage().getSimpleName(), "org", "javax", "java")) {
+                        continue;
+                    }
+                    if (StringUtils.isNotEmpty(backPack)) {
+                        if (!StringUtils.startsWithAny(ctTypeReference.getPackage().getSimpleName(), backPack)) {
+                            continue;
+                        }
+                    }
+
+                    if (StringUtils.isEmpty(ctTypeReference.getPackage().toString())) {
+                        // import javax.servlet.*;
+                        // public class TokenFilter implements Filter {
+                        continue;
+                    }
+
+                    if (ctTypeReference.getDeclaration() == null) {
+                        continue;
+                    }
+                    List<CtMethod<?>> methodList = ctTypeReference.getDeclaration().getMethods().stream().toList();
+                    for (CtMethod<?> ctMethod : methodList) {
+                        String interfaceClass = ctTypeReference.getPackage() + "." + ctTypeReference.getSimpleName() + "." + ctMethod.getSimpleName();
+                        interfaceMap.put(interfaceClass, implClass);
+                    }
+                }
+            }
+
+        }
+        log.info("interfaceMap:{}", interfaceMap);
 
 
         for (ParserNode parserNode : parserNodes) {
@@ -157,10 +176,8 @@ public class Spoon {
         }
 
         nodeList = nodeList.stream().distinct().toList();
-        System.out.println(nodeList.size());
         System.out.println(JSON.toJSONString(nodeList));
         edgeList = edgeList.stream().distinct().toList();
-        System.out.println(edgeList.size());
         System.out.println(JSON.toJSONString(edgeList));
 
 
@@ -187,11 +204,16 @@ public class Spoon {
         System.out.println(JSON.toJSONString(releationMap));
     }
 
+    private static Set<String> uniqueSet = new HashSet<>();
 
     public static void findNextCalls(CtModel ctModel, ParserNode node, Map<String, String> interfaceMap, Map<String, Set<String>> daoNodeMap, String backPack) {
 
-
         String srcKey = node.getVal();
+        if (!uniqueSet.contains(srcKey)) {
+            uniqueSet.add(srcKey);
+        } else {
+            return;
+        }
         ctModel.getElements(new TypeFilter<CtMethod<?>>(CtMethod.class) {
             @Override
             public boolean matches(CtMethod<?> method) {
@@ -219,7 +241,7 @@ public class Spoon {
                     String itemName = newPkg + "." + newClassName + "." + newMethodName;
 
 
-                    if (!StringUtils.startsWithAny(itemName, backPack)) {
+                    if (backPack != null && !StringUtils.startsWithAny(itemName, backPack)) {
                         continue;
                     }
 
@@ -227,17 +249,22 @@ public class Spoon {
                     ParserNode parserNode = null;
                     // 如果匹配，则要用实现类来继续递归
                     if (interfaceMap.containsKey(itemName)) {
-                        parserNode = new ParserNode(interfaceMap.get(itemName) + "." + newMethodName);
+                        String implClass = interfaceMap.get(itemName);
+                        parserNode = new ParserNode(implClass + "." + newMethodName);
+                        if (daoNodeMap.containsKey(parserNode.getVal())) {
+                            for (String daoNode : daoNodeMap.get(parserNode.getVal())) {
+                                parserNodeList.add(ParserNode.buildTableNode(daoNode, srcKey));
+                            }
+                        }
+
                     } else {
                         parserNode = new ParserNode(newPkg, newClassName, newMethodName);
                     }
+
+
                     if (daoNodeMap.containsKey(itemName)) {
                         for (String daoNode : daoNodeMap.get(itemName)) {
-                            ParserNode tableNode = new ParserNode(daoNode);
-                            tableNode.setName(daoNode);
-                            tableNode.setType(NodeType.TABLE.getType());
-                            tableNode.setParentId(srcKey);
-                            parserNodeList.add(tableNode);
+                            parserNodeList.add(ParserNode.buildTableNode(daoNode, srcKey));
                         }
                     }
                     parserNode.setParentId(srcKey);

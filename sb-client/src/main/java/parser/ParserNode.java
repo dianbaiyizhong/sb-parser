@@ -43,4 +43,15 @@ public class ParserNode {
     public String toString() {
         return val;
     }
+
+
+    public static ParserNode buildTableNode(String val, String parentId) {
+        ParserNode tableNode = new ParserNode(val);
+        tableNode.setName(val);
+        tableNode.setType(NodeType.TABLE.getType());
+        tableNode.setParentId(parentId);
+        return tableNode;
+    }
+
+
 }

@@ -1,12 +1,20 @@
 package parser;
 
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.alibaba.fastjson2.JSON;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
+import spoon.reflect.CtModel;
+import spoon.reflect.declaration.CtClass;
+import spoon.reflect.declaration.CtMethod;
+import spoon.reflect.visitor.filter.TypeFilter;
+import spoon.support.reflect.declaration.CtAnnotationTypeImpl;
+import spoon.support.reflect.declaration.CtInterfaceImpl;
 
 import java.io.File;
 import java.nio.charset.Charset;
@@ -18,9 +26,8 @@ public class ParserNodeFactory {
 
     private static List<String> sqlOpType = Lists.newArrayList("select", "delete", "insert", "update");
 
-    public static Map<String, Set<String>> getDaoNode(String projectPath, List<String> tableNameList) {
+    public static void getDaoNode(String projectPath, List<String> tableNameList, Map<String, Set<String>> retList) {
 
-        Map<String, Set<String>> retList = new HashMap<>();
         List<File> files = FileUtil.loopFiles(new File(projectPath), file -> {
             if (FileUtil.getSuffix(file).equals("xml")) {
                 // 适配xml方式的mybatis
@@ -68,8 +75,37 @@ public class ParserNodeFactory {
             }
         }
 
-        return retList;
 
+    }
+
+    public static void getDaoNode(CtModel ctModel, List<String> tableNameList, Map<String, Set<String>> retList) {
+        List<CtMethod> methodElements = ctModel.getRootPackage().getElements(new TypeFilter<>(CtMethod.class));
+        for (CtMethod methodElement : methodElements) {
+            if (methodElement.getParent() instanceof CtInterfaceImpl) {
+                continue;
+            }
+            if (methodElement.getParent() instanceof CtAnnotationTypeImpl<?>) {
+                continue;
+            }
+
+            CtClass cz = (CtClass) methodElement.getParent();
+            String curClazz = cz.getSimpleName();
+            String curPkg = null != cz.getPackage() ? cz.getPackage().getQualifiedName() : "-";
+
+            String packageName = curPkg + "." + curClazz + "." + methodElement.getSimpleName();
+
+            for (String tableName : tableNameList) {
+                String camelCaseStr = StrUtil.toCamelCase(tableName);
+                if (methodElement.toString().toLowerCase().contains(camelCaseStr.toLowerCase())) {
+                    if (retList.containsKey(packageName)) {
+                        retList.get(packageName).add(tableName);
+                    } else {
+                        retList.put(packageName, Sets.newHashSet(tableName));
+                    }
+
+                }
+            }
+        }
     }
 
 

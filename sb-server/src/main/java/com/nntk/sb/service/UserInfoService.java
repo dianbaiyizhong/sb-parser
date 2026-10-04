@@ -1,5 +1,6 @@
 package com.nntk.sb.service;
 
+import com.nntk.sb.domain.TAchievementNormal;
 import com.nntk.sb.domain.TUserExample;
 import com.nntk.sb.manager.UserInfoManager;
 import com.nntk.sb.mapper.TUserMapper;
@@ -21,6 +22,8 @@ public class UserInfoService implements IUserInfoService {
     @Override
     public void queryUser() {
         log.info("=======================queryUser");
+        TAchievementNormal achievementNormal = new TAchievementNormal();
+        achievementNormal.setId(1);
         userInfoManager.getSomethingByRedis();
     }
 

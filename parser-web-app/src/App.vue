@@ -43,7 +43,6 @@
 </template>
 
 <script>
-import axios from 'axios';
 import G6 from '@antv/g6';
 import customNode from "./components/g6/custom-node";
 import customEdge from './components/g6/custom-edge'
@@ -53,6 +52,7 @@ import bus from '@/plugins/bus';
 
 import edges from './data/edges.json';
 import nodes from './data/nodes.json';
+import releation from './data/releation.json';
 
 let currentSelectModel = null
 import {nextTick} from "vue";
@@ -194,30 +194,7 @@ export default {
       }, 100)
 
 
-      // graph.on('node:mouseenter', (evt) => {
-      //   const {item} = evt;
-      //   graph.setItemState(item, 'hover', true);
-      // })
-      //
-      // graph.on('node:mouseleave', (evt) => {
-      //   const {item} = evt;
-      //   graph.setItemState(item, 'hover', false);
-      // })
-
-      // bus.$on('nodeselectchange', (item) => {
-      //   if (item.select === true && item.target.getType() === "node") {
-      //     self.status = "node-selected"
-      //     self.item = item.target
-      //     self.node = item.target.getModel()
-      //   } else {
-      //     self.status = "canvas-selected"
-      //     self.item = null
-      //     self.node = null
-      //   }
-      // });
-
-
-      const releationMap = {"t_achievement_normal": [["t_achievement_normal", "com.zhenmei.p7i.rest.service.impl.AchievementServiceImpl.listNormalByUserId", "com.zhenmei.p7i.rest.web.controller.AchievementController.listNormal"]]}
+      let releationMap = releation
       bus.$on("nodeselectchange", item => {
         if (item.select === true && item.target.getType() === "node") {
           let selectModel = item.target._cfg.model
